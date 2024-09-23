@@ -33,9 +33,9 @@ const register = async (req, res) => {
     });
 
     // const verificationUrl = `http://localhost:${process.env.PORT || 3000}/api/users/verify/${verificationToken}`;
-    // const verificationUrl = `${process.env.BASE_URL}/api/users/verify-email/${verificationToken}`; // Ensure this matches your backend route
+    const verificationUrl = `${process.env.BASE_URL}/api/users/verify-email/${verificationToken}`; // Ensure this matches your backend route
 
-    const verificationUrl = `${process.env.FRONTEND_BASE_URL}/verify-email/${verificationToken}`;
+    // const verificationUrl = `${process.env.FRONTEND_BASE_URL}/verify-email/${verificationToken}`;
 
 
     const mailOptions = {
