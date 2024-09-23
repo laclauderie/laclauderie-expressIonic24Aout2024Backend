@@ -1,8 +1,7 @@
 const express = require('express');
 const path = require('path');
 const cors = require('cors');
-
-require('dotenv').config(); // Load environment variables from .env if running locally
+require('dotenv').config();
 
 const { connectToDatabase, closeDatabaseConnection } = require('./src/config/db');
 const userRoute = require('./src/routes/userRoute');
@@ -16,32 +15,51 @@ const villesRoute = require('./src/routes/villesRoute');
 const expirePaymentsJob = require('./src/jobs/expirePaymentsJob');
 
 const app = express();
-const PORT = process.env.PORT || 3000; // Default to 3000 for local development
+const PORT = process.env.PORT || 3000;
 
-// CORS configuration using environment variable for the app URL
+if (!process.env.APP_URL || !process.env.NODE_ENV || !process.env.PORT) {
+  console.error('Missing required environment variables. Check your .env file.');
+  process.exit(1); 
+}
+
 app.use(cors({
-  origin: process.env.NODE_ENV === 'production'
-    ? process.env.APP_URL // Use the app URL from environment variables in production
-    : 'http://localhost:8100', // Use localhost for local development
+  origin: (origin, callback) => {
+    const allowedOrigins = [process.env.APP_URL, 'http://localhost:8100'];
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error('CORS not allowed from this origin.'));
+    }
+  },
   methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
-  credentials: true, // Allow cookies and other credentials
+  credentials: true,
   allowedHeaders: 'Content-Type,Authorization'
 }));
 
-// Serve static files (like images) from 'uploads' directory
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+app.use('/uploads', (req, res, next) => {
+  console.log(`Serving static file request: ${req.originalUrl}`);
+  next();
+}, express.static(path.join(__dirname, 'uploads')));
 
-// Routes setup
-app.use('/api/users', userRoute);
-app.use('/api/business-owners', businessOwnerRoute);
-app.use('/api/payments', paymentRoute);
-app.use('/api/my-commerces', commerceRoute);
-app.use('/api/categories', categoryRoute);
-app.use('/api/products', productRoutes);
-app.use('/api/details', detailsRoute);
-app.use('/api/villes', villesRoute);
+const routes = [
+  { path: '/api/users', handler: userRoute },
+  { path: '/api/business-owners', handler: businessOwnerRoute },
+  { path: '/api/payments', handler: paymentRoute },
+  { path: '/api/my-commerces', handler: commerceRoute },
+  { path: '/api/categories', handler: categoryRoute },
+  { path: '/api/products', handler: productRoutes },
+  { path: '/api/details', handler: detailsRoute },
+  { path: '/api/villes', handler: villesRoute }
+];
 
-// Function to run expire payments job on startup
+routes.forEach(route => {
+  try {
+    app.use(route.path, route.handler);
+  } catch (error) {
+    console.error(`Error setting up route: ${route.path}`, error);
+  }
+});
+
 const runExpirePaymentsJobOnStart = async () => {
   try {
     await expirePaymentsJob();
@@ -51,10 +69,8 @@ const runExpirePaymentsJobOnStart = async () => {
   }
 };
 
-// Run the job when the server starts
 runExpirePaymentsJobOnStart();
 
-// Connect to the database and start the server
 connectToDatabase()
   .then(() => {
     app.listen(PORT, () => {
@@ -67,30 +83,29 @@ connectToDatabase()
   })
   .catch(error => {
     console.error('Error starting server:', error);
-    process.exit(1); // Exit with error code 1 if something goes wrong
+    process.exit(1);
   });
 
-// Gracefully close the database connection when the process is terminated
 process.on('SIGINT', async () => {
+  console.log('SIGINT received. Shutting down gracefully...');
   try {
     await closeDatabaseConnection();
     console.log('Database connection closed gracefully');
-    process.exit(0); // Exit with success code
+    process.exit(0);
   } catch (error) {
     console.error('Error closing database connection:', error);
-    process.exit(1); // Exit with error code 1
+    process.exit(1);
   }
 });
 
-// Handle unhandled promise rejections and close the database connection
 process.on('unhandledRejection', async (reason, promise) => {
-  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+  console.error('Unhandled Rejection at:', promise, 'reason:', reason.message || reason);
   try {
     await closeDatabaseConnection();
-    console.log('Database connection closed gracefully');
-    process.exit(1); // Exit with error code 1
+    console.log('Database connection closed due to unhandled rejection');
+    process.exit(1);
   } catch (error) {
-    console.error('Error closing database connection:', error);
-    process.exit(1); // Exit with error code 1
+    console.error('Error closing database connection after unhandled rejection:', error);
+    process.exit(1);
   }
 });
